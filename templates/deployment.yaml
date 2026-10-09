@@ -38,14 +38,12 @@ spec:
             - "{{ .Values.service.port }}"
           ports:
             - name: http
-              containerPort: 5678
+              containerPort: 80
               protocol: TCP
           livenessProbe:
-            exec:
-              command:
-                - /bin/bash
-                - -c
-                - "wget --spider -q http://localhost:{{ .Values.service.port }}"
+            httpGet:
+              path: /
+              port: http
           readinessProbe:
             httpGet:
               path: /

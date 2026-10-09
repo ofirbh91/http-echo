@@ -58,4 +58,52 @@ Do the same test from previous step with https (https://http-echo.k8s-server.loc
 ### Submission ###
 * Please provide a working solution, **submitted as a new git local branch**, and in the comment please provide a short description which explains any important issue or comments about your work 
 
+## Local environment setup
+
+Run these commands from Linux or WSL2 with a running Docker daemon and
+`docker`, `minikube`, `kubectl`, `helm`, and `curl` installed:
+
+```bash
+bash scripts/setup-local.sh
+```
+
+The script reuses the healthy `minikube` profile, or starts it with the Docker
+driver, 2 CPUs, and 3900 MiB of memory. It enables the
+[Minikube NGINX Ingress addon](https://minikube.sigs.k8s.io/docs/tutorials/nginx_tcp_udp_ingress/),
+waits for the controller, creates the `http-echo` namespace, and checks that
+an unmatched HTTP host receives NGINX's expected `404` response. This verifies
+ingress connectivity; it does not mean the echo application has been deployed.
+Set `MINIKUBE_PROFILE` to use a different local profile. All Kubernetes commands
+in the script explicitly target that profile.
+
+Inspect the environment:
+
+```bash
+minikube -p minikube status
+kubectl --context=minikube get nodes
+kubectl --context=minikube -n ingress-nginx get pods,services
+kubectl --context=minikube get ingressclass nginx
+helm list --kube-context minikube --all-namespaces
+```
+
+With the Docker driver under Linux/WSL2, the ingress IP is obtained with
+`minikube -p minikube ip`. Test from the same Linux/WSL shell without changing
+`/etc/hosts`:
+
+```bash
+cluster_ip="$(minikube -p minikube ip)"
+curl --noproxy '*' --resolve "http-echo.k8s-server.local:80:$cluster_ip" \
+  http://http-echo.k8s-server.local/
+```
+
+Before the application is deployed, `404` is expected. After the chart is fixed
+and deployed, this request should return the JSON response in the assignment.
+Access from a Windows browser needs separate host routing/name resolution;
+these commands verify access from Linux/WSL2.
+
+The chart still needs troubleshooting: currently its template files are at the
+repository root instead of `templates/`, so `helm template http-echo .` renders
+no Kubernetes resources. Application fixes and the HTTPS bonus are subsequent
+steps.
+
 
