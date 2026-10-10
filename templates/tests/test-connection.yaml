@@ -3,13 +3,70 @@ kind: Pod
 metadata:
   name: "{{ include "http-echo.fullname" . }}-test-connection"
   labels:
-    {{- include "http-echo.labels" . | nindent 4 }}
+    # Omit the application's name label so its selectors exclude this test Pod.
+    helm.sh/chart: {{ include "http-echo.chart" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: test
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
   annotations:
     "helm.sh/hook": test
+    # Keep the result and logs until the next test run replaces this Pod.
+    "helm.sh/hook-delete-policy": before-hook-creation
 spec:
+  activeDeadlineSeconds: 30
+  {{- with .Values.imagePullSecrets }}
+  imagePullSecrets:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   containers:
-    - name: wget
-      image: busybox
-      command: ['wget']
-      args: ['{{ include "http-echo.fullname" . }}:{{ .Values.service.port }}']
+    - name: http-check
+      # Reuse the echo-server image, which already includes Node.js.
+      image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+      imagePullPolicy: {{ .Values.image.pullPolicy }}
+      env:
+        - name: TEST_URL
+          value: {{ printf "http://%s:%v/" (include "http-echo.fullname" .) .Values.service.port | quote }}
+      command: ["node", "-e"]
+      args:
+        - |
+          const http = require("http");
+
+          function fail(message) {
+            console.error("FAIL: " + message);
+            process.exit(1);
+          }
+
+          const deadline = setTimeout(() => fail("Request exceeded 10 seconds"), 10000);
+          const request = http.get(process.env.TEST_URL, (response) => {
+            let body = "";
+            response.setEncoding("utf8");
+            response.on("data", (chunk) => { body += chunk; });
+            response.on("error", (error) => fail(error.message));
+            response.on("end", () => {
+              if (response.statusCode !== 200) {
+                fail("Expected HTTP 200, received " + response.statusCode);
+              }
+
+              const contentType = (response.headers["content-type"] || "")
+                .split(";")[0].trim().toLowerCase();
+              if (contentType !== "application/json") {
+                fail("Expected Content-Type application/json");
+              }
+
+              let payload;
+              try {
+                payload = JSON.parse(body);
+              } catch (error) {
+                fail("Response is not valid JSON");
+              }
+              if (!payload || !payload.http ||
+                  payload.http.method !== "GET" || payload.http.originalUrl !== "/") {
+                fail("JSON does not describe the expected GET / request");
+              }
+
+              clearTimeout(deadline);
+              console.log("PASS: HTTP 200, valid JSON, and echoed GET /");
+            });
+          });
+          request.on("error", (error) => fail(error.message));
   restartPolicy: Never
