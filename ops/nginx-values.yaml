@@ -1,0 +1,61 @@
+# Official F5 NGINX Open Source chart; the image is used without rebuilding it.
+controller:
+  image:
+    repository: nginx/nginx-ingress
+    tag: 5.6.3-alpine
+    digest: sha256:2c3ae7869c8c935870f8760ee5db894c504410a7785312fd4a21cbb729b1db2d
+    pullPolicy: IfNotPresent
+  ingressClass:
+    name: nginx-oss
+    setAsDefaultIngress: false
+  serviceAccount:
+    name: nginx-ingress
+  watchNamespace: http-echo
+  watchSecretNamespace: http-echo
+  enableCustomResources: false
+  enableSnippets: false
+  nginxStatus:
+    enable: false
+  reportIngressStatus:
+    enable: false
+    enableLeaderElection: false
+  telemetryReporting:
+    enable: false
+  service:
+    type: ClusterIP
+  config:
+    entries:
+      worker-processes: "1"
+      server-tokens: "false"
+      ssl-redirect: "true"
+      ssl-protocols: "TLSv1.2 TLSv1.3"
+  resources:
+    requests: {cpu: 100m, memory: 128Mi}
+    limits: {cpu: 500m, memory: 256Mi}
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 101
+    runAsGroup: 101
+    fsGroup: 101
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: [ALL]
+      add: [NET_BIND_SERVICE]
+  initContainerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: [ALL]
+  initContainerResources:
+    requests: {cpu: 10m, memory: 32Mi}
+    limits: {cpu: 100m, memory: 128Mi}
+rbac:
+  create: false
+prometheus:
+  create: false
+nginxAgent:
+  enable: false

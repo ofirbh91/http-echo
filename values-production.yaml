@@ -1,0 +1,14 @@
+# Supply image.repository and image.digest from your own scanned image registry.
+production: true
+autoscaling:
+  minReplicas: 2
+  maxReplicas: 6
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+topologySpreadConstraints:
+  - maxSkew: 1
+    minDomains: 2
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: DoNotSchedule
+# Supply a trusted certificate through your platform's certificate manager.

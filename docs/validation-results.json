@@ -1,0 +1,116 @@
+{
+  "date": "2026-10-12",
+  "environment": {
+    "profile": "http-echo-secure",
+    "kubernetes": "1.35.9",
+    "cpus": 2,
+    "memory_mib": 3900,
+    "cni": "Calico"
+  },
+  "application_image": "http-echo-local:ac1a9f2eb4cb1afb1410858284af5eb5dff9852c62d0feae627658660b9e54e5",
+  "ingress_image": "nginx/nginx-ingress@sha256:2c3ae7869c8c935870f8760ee5db894c504410a7785312fd4a21cbb729b1db2d",
+  "ingress_runtime_image_id": "docker.io/nginx/nginx-ingress@sha256:2c3ae7869c8c935870f8760ee5db894c504410a7785312fd4a21cbb729b1db2d",
+  "ingress_source": "Official nginx/nginx-ingress:5.6.3-alpine, unchanged; Helm chart 2.7.3.",
+  "scanner": "Trivy 0.75.0",
+  "scan_findings": {
+    "application": {
+      "HIGH": 0,
+      "CRITICAL": 0
+    },
+    "ingress": {
+      "HIGH": 4,
+      "CRITICAL": 0
+    }
+  },
+  "accepted_ingress_high_findings": 4,
+  "exception_policy": "ops/nginx-scan-exceptions.json",
+  "offline_chart_tests_passed": 6,
+  "scan_policy_tests_passed": 5,
+  "container_runtime_tests": {
+    "passed": 4,
+    "note": "Previously verified against the identical application image; application code and image are unchanged by this migration."
+  },
+  "checks": {
+    "repeat_setup": "passed",
+    "helm_test": "passed",
+    "http_to_https_redirect": 301,
+    "verified_https_status": 200,
+    "unauthorized_pod_blocked": true,
+    "application_egress_blocked": true,
+    "nginx_can_read_application_secrets": true,
+    "nginx_cannot_read_kube_system_secrets": true,
+    "systemd_forwarder": "active; nginx-ingress/nginx-ingress-controller; localhost 80/443 verified",
+    "helm_package_excludes_local_secrets": true
+  },
+  "benchmark": {
+    "scope": "Local HTTPS through kubectl port-forward; client and cluster share host resources. Not production sizing evidence.",
+    "context": "http-echo-secure",
+    "duration_seconds": 90.0,
+    "concurrency": 8,
+    "successful_requests": 215735,
+    "errors": 0,
+    "requests_per_second": 2396.98,
+    "latency_ms": {
+      "median": 3.25,
+      "p95": 4.27
+    }
+  },
+  "sampled_resources": {
+    "cpu_millicores_min": 1,
+    "cpu_millicores_max": 328,
+    "memory_mib_min": 20,
+    "memory_mib_max": 30,
+    "last_pod_sample": "POD                          NAME        CPU(cores)   MEMORY(bytes)   \nhttp-echo-5c4bdf96c5-8bksm   http-echo   328m         30Mi            \nhttp-echo-5c4bdf96c5-rcwtw   http-echo   321m         24Mi            \nhttp-echo-5c4bdf96c5-vmbms   http-echo   327m         25Mi            \n",
+    "last_hpa_current_replicas": 3,
+    "last_hpa_desired_replicas": 3,
+    "last_hpa_metrics": [
+      {
+        "resource": {
+          "current": {
+            "averageUtilization": 90,
+            "averageValue": "90m"
+          },
+          "name": "cpu"
+        },
+        "type": "Resource"
+      }
+    ],
+    "note": "Final run began with three replicas after the earlier load run. Metrics-server refreshes every 60 seconds and HPA observes asynchronously; these are samples, not continuous peaks."
+  },
+  "earlier_interrupted_benchmark": {
+    "scope": "Local HTTPS through kubectl port-forward; client and cluster share host resources. Not production sizing evidence.",
+    "context": "http-echo-secure",
+    "duration_seconds": 90.03,
+    "concurrency": 8,
+    "successful_requests": 67206,
+    "errors": 7712,
+    "requests_per_second": 746.46,
+    "latency_ms": {
+      "median": 3.27,
+      "p95": 18.64
+    },
+    "note": "kubectl port-forward reported lost connection to pod. NGINX had no container restart. Cause of the forwarding disconnect was not established; preserved as a failed run, not a successful capacity result."
+  },
+  "cleanup_verification": {
+    "date": "2026-10-12",
+    "deleted_local_bytes": 95387899,
+    "prerequisite_check": "passed",
+    "offline_chart_tests_passed": 6,
+    "scan_policy_tests_passed": 5,
+    "repeat_setup": "passed against existing http-echo-secure profile with INSTALL_FORWARDER=0; existing systemd service verified separately",
+    "application_image_unchanged": true,
+    "helm_revisions_after_setup": {
+      "http-echo": 5,
+      "nginx-ingress": 3
+    },
+    "helm_package_files": 16,
+    "helm_package_test_hook_retained": true,
+    "helm_package_excludes_local_secrets_and_build_files": true,
+    "helm_notes": "client dry-run passed with ingress enabled and disabled",
+    "systemd_forwarder": "active",
+    "verified_https_status": 200,
+    "http_to_https_redirect": 301,
+    "https_forwarding_log_bytes": 167,
+    "benchmark": "No new load test; existing successful and interrupted NGINX measurements preserved."
+  }
+}

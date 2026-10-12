@@ -1,0 +1,102 @@
+# Namespace-scoped application reads, including TLS Secrets.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nginx-ingress
+  namespace: nginx-ingress
+automountServiceAccountToken: true
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: http-echo-nginx-metadata
+rules:
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [nodes]
+    verbs: [list]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingressclasses]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: http-echo-nginx-metadata
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: http-echo-nginx-metadata
+subjects:
+  - kind: ServiceAccount
+    name: nginx-ingress
+    namespace: nginx-ingress
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: http-echo-nginx
+  namespace: http-echo
+rules:
+  - apiGroups: [""]
+    resources: [configmaps, pods, services, secrets]
+    verbs: [get, list, watch]
+  - apiGroups: [discovery.k8s.io]
+    resources: [endpointslices]
+    verbs: [get, list, watch]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create, patch, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: http-echo-nginx
+  namespace: http-echo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: http-echo-nginx
+subjects:
+  - kind: ServiceAccount
+    name: nginx-ingress
+    namespace: nginx-ingress
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: http-echo-nginx-controller
+  namespace: nginx-ingress
+rules:
+  - apiGroups: [""]
+    resources: [configmaps, pods]
+    verbs: [get, list, watch]
+  # The official controller labels its Pod during startup.
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [update]
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create, patch, list]
+  - apiGroups: [apps]
+    resources: [replicasets, deployments]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: http-echo-nginx-controller
+  namespace: nginx-ingress
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: http-echo-nginx-controller
+subjects:
+  - kind: ServiceAccount
+    name: nginx-ingress
+    namespace: nginx-ingress

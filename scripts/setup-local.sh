@@ -1,99 +1,80 @@
 #!/usr/bin/env bash
 set -euo pipefail
+source "$(dirname -- "${BASH_SOURCE[0]}")/common.sh"
 
-profile="${MINIKUBE_PROFILE:-minikube}"
-ingress_service="http-echo-ingress.service"
-ingress_ip="127.0.0.1"
-
-for tool in docker minikube kubectl helm curl systemctl; do
-  if ! command -v "$tool" >/dev/null 2>&1; then
-    printf 'Required command is missing: %s\n' "$tool" >&2
-    exit 1
-  fi
+if [[ "$#" -gt 1 || ( "$#" -eq 1 && "$1" != --check ) ]]; then
+  printf 'Usage: bash scripts/setup-local.sh [--check]\n' >&2
+  exit 2
+fi
+if [[ "$EUID" == 0 ]]; then
+  printf 'Run setup as your normal user. Only the forwarding service installation uses sudo.\n' >&2
+  exit 1
+fi
+for tool in docker minikube kubectl helm curl openssl python3 sha256sum; do
+  command -v "$tool" >/dev/null || { printf 'Required command is missing: %s\n' "$tool" >&2; exit 1; }
 done
-
-docker info >/dev/null
-
-# The WSL access path is managed by the systemd unit installed separately.
-if ! service_state="$(systemctl show "$ingress_service" --property=LoadState --value)"; then
-  printf 'Cannot query systemd. Run this script inside WSL with systemd enabled.\n' >&2
-  exit 1
-fi
-if [[ "$service_state" != loaded ]]; then
-  printf 'Install the ingress forwarding service first, from the repository root:\n' >&2
-  printf '  sudo install -m 0644 ops/systemd/%s /etc/systemd/system/\n' "$ingress_service" >&2
-  printf '  sudo systemctl daemon-reload\n' >&2
-  printf '  sudo systemctl enable --now %s\n' "$ingress_service" >&2
-  printf 'Check User, KUBECONFIG, and the kubectl path in the unit for this machine.\n' >&2
-  exit 1
-fi
-
-# Avoid checking a localhost forward that points to a different cluster.
-service_command="$(systemctl show "$ingress_service" --property=ExecStart --value)"
-if [[ "$service_command" != *"--context=$profile "* ]]; then
-  printf '%s must use --context=%s to match MINIKUBE_PROFILE.\n' "$ingress_service" "$profile" >&2
-  printf 'Update the unit, then run sudo systemctl daemon-reload and restart it.\n' >&2
-  exit 1
+python3 -c 'import sys; sys.exit("Python 3.12+ is required") if sys.version_info < (3, 12) else None'
+helm_rollback_flag >/dev/null
+case "${INSTALL_FORWARDER:-1}" in
+  1)
+    for tool in systemctl sudo; do
+      command -v "$tool" >/dev/null || { printf 'Missing %s; use INSTALL_FORWARDER=0 for foreground access.\n' "$tool" >&2; exit 1; }
+    done
+    [[ -d /run/systemd/system ]] || { printf 'Systemd is not running; use INSTALL_FORWARDER=0 for foreground access.\n' >&2; exit 1; }
+    ;;
+  0) ;;
+  *) printf 'INSTALL_FORWARDER must be 0 or 1.\n' >&2; exit 2 ;;
+esac
+docker info >/dev/null || { printf 'Docker is unavailable. Start Docker and check Linux/WSL access.\n' >&2; exit 1; }
+if [[ "${1:-}" == --check ]]; then
+  printf 'Prerequisites passed. Run: INSTALL_FORWARDER=%s bash scripts/setup-local.sh\n' "${INSTALL_FORWARDER:-1}"
+  exit 0
 fi
 
-# Reuse a healthy cluster; start it only when necessary.
+# A dedicated profile avoids silently replacing the network plugin of an existing cluster.
 if ! minikube -p "$profile" status >/dev/null 2>&1; then
-  minikube -p "$profile" start \
-    --driver=docker \
-    --cpus=2 \
-    --memory=3900 \
-    --keep-context
+  minikube -p "$profile" start --driver=docker --cpus=2 --memory=3900 \
+    --cni=calico --kubernetes-version="${KUBERNETES_VERSION:-v1.35.9}" --keep-context
+fi
+kube wait --for=condition=Ready nodes --all --timeout=300s
+if ! kube -n kube-system get daemonset calico-node >/dev/null 2>&1; then
+  printf 'This profile has no Calico policy enforcement. Use a new profile with --cni=calico.\n' >&2
+  exit 1
+fi
+kube -n kube-system rollout status daemonset/calico-node --timeout=300s
+if kube -n ingress-nginx get deployment ingress-nginx-controller >/dev/null 2>&1; then
+  printf 'This profile still contains the retired ingress-nginx controller. Use a separate clean profile.\n' >&2
+  exit 1
 fi
 
-kubectl --context="$profile" wait --for=condition=Ready nodes --all --timeout=180s
-minikube -p "$profile" addons enable ingress
-kubectl --context="$profile" -n ingress-nginx rollout status \
-  deployment/ingress-nginx-controller --timeout=180s
-kubectl --context="$profile" get ingressclass nginx
+bash "$chart_dir/scripts/build-image.sh"
+minikube -p "$profile" image load "$(cat "$state_dir/image-ref")"
 
-# The CPU-based HPA needs the resource metrics API, including on a fresh cluster.
+for ns in "$namespace" "$ingress_namespace"; do
+  kube create namespace "$ns" --dry-run=client -o yaml | kube apply -f -
+  kube label namespace "$ns" --overwrite \
+    pod-security.kubernetes.io/enforce=restricted \
+    pod-security.kubernetes.io/enforce-version=v1.35
+done
+bash "$chart_dir/scripts/ensure-local-tls.sh"
+
 minikube -p "$profile" addons enable metrics-server
-kubectl --context="$profile" -n kube-system rollout status \
-  deployment/metrics-server --timeout=180s
-kubectl --context="$profile" wait --for=condition=Available \
-  apiservice/v1beta1.metrics.k8s.io --timeout=180s
+kube -n kube-system rollout status deployment/metrics-server --timeout=180s
+kube wait --for=condition=Available apiservice/v1beta1.metrics.k8s.io --timeout=180s
 
-# Ensure the application namespace exists; Helm deploys the application separately.
-kubectl --context="$profile" create namespace http-echo --dry-run=client -o yaml |
-  kubectl --context="$profile" apply -f -
+bash "$chart_dir/scripts/install-ingress.sh"
+helm upgrade --install http-echo "$chart_dir" --kube-context "$profile" \
+  --namespace "$namespace" -f "$state_dir/image-values.yaml" \
+  "$(helm_rollback_flag)" --wait --timeout 5m
+helm test http-echo --kube-context "$profile" --namespace "$namespace" --logs --timeout 90s
+bash "$chart_dir/scripts/test-network-policy.sh"
+bash "$chart_dir/scripts/verify-https.sh"
 
-# Keep forwarding managed in the background, without a separate terminal.
-if ! systemctl is-active --quiet "$ingress_service"; then
-  printf 'Starting %s (sudo may ask for your password).\n' "$ingress_service"
-  if ! sudo systemctl start "$ingress_service"; then
-    printf 'Could not start %s. Inspect it with systemctl status.\n' "$ingress_service" >&2
-    exit 1
-  fi
+# Optional on machines without systemd; the foreground forwarder remains available.
+if [[ "${INSTALL_FORWARDER:-1}" == 1 ]]; then
+  bash "$chart_dir/scripts/install-forwarding-service.sh"
 fi
-
-# Allow a short startup window before the background forward starts listening.
-if ! status="$(curl --noproxy '*' --silent --show-error --output /dev/null \
-  --write-out '%{http_code}' --connect-timeout 5 --max-time 10 \
-  --retry 5 --retry-connrefused --retry-delay 2 --retry-max-time 20 \
-  --resolve "http-echo-env-check.invalid:80:$ingress_ip" \
-  http://http-echo-env-check.invalid/)"; then
-  printf 'Cannot reach the ingress through %s:80.\n' "$ingress_ip" >&2
-  printf 'Inspect the forwarding service:\n' >&2
-  printf '  systemctl status %s --no-pager\n' "$ingress_service" >&2
-  printf '  sudo journalctl -u %s -n 40 --no-pager\n' "$ingress_service" >&2
-  exit 1
-fi
-
-# An unmatched host must reach NGINX's default backend, which returns 404.
-if [[ "$status" != 404 ]]; then
-  printf 'Ingress check failed: expected HTTP 404, received %s\n' "$status" >&2
-  exit 1
-fi
-
-printf '\nLocal environment is ready.\n'
-printf 'Kubernetes context: %s\n' "$profile"
-printf 'Application namespace: http-echo\n'
-printf 'Metrics API: available for resource-based autoscaling\n'
-printf 'Ingress access: %s:80 via %s\n' "$ingress_ip" "$ingress_service"
-printf 'Ingress connectivity: HTTP %s (expected for an unmatched host)\n' "$status"
-printf 'This verifies the infrastructure; test the application separately for HTTP 200 and JSON.\n'
+printf '\nLocal environment and application verified. Context: %s\n' "$profile"
+printf 'Application: https://%s/\n' "$host"
+printf 'Local certificate: %s/tls/tls.crt\n' "$state_dir"
+printf 'For foreground access: bash scripts/forward-local.sh (ports 8080/8443).\n'

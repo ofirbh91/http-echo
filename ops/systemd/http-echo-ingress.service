@@ -1,18 +1,23 @@
 [Unit]
-Description=Local HTTP echo ingress forwarding
+Description=Local HTTP echo F5 NGINX forwarding
 After=network.target
 StartLimitIntervalSec=0
 
 [Service]
 Type=simple
-User=ofirb
-Environment=KUBECONFIG=/home/ofirb/.kube/config
-ExecStart=/usr/local/bin/kubectl --context=minikube -n ingress-nginx port-forward service/ingress-nginx-controller --address=127.0.0.1 80:80 443:443
+User=@USER@
+Environment="KUBECONFIG=@KUBECONFIG@"
+ExecStart=@KUBECTL@ --cache-dir=/tmp/http-echo-kube-cache --context=@PROFILE@ -n nginx-ingress port-forward service/nginx-ingress-controller --address=127.0.0.1 80:80 443:443
 Restart=always
 RestartSec=5
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+RestrictSUIDSGID=true
+UMask=0077
 
 [Install]
 WantedBy=multi-user.target

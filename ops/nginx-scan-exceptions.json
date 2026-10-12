@@ -1,0 +1,11 @@
+{
+  "image_ref": "nginx/nginx-ingress@sha256:2c3ae7869c8c935870f8760ee5db894c504410a7785312fd4a21cbb729b1db2d",
+  "reviewed_on": "2026-10-12",
+  "reason": "User chose the unchanged official F5 NGINX Alpine image after reviewing these findings. This local demo accepts the known HIGH findings; exploitability has not been ruled out. Reassess on every image update and remove exceptions when upstream ships fixes. This is not production risk approval.",
+  "allowed_high_findings": [
+    {"target": "nginx-ingress", "cve": "CVE-2026-78669", "package": "golang.org/x/net", "version": "v0.58.0"},
+    {"target": "nginx-ingress", "cve": "CVE-2026-78667", "package": "stdlib", "version": "v1.27.1"},
+    {"target": "nginx-ingress", "cve": "CVE-2026-78669", "package": "stdlib", "version": "v1.27.1"},
+    {"target": "nginx-ingress", "cve": "CVE-2026-97031", "package": "stdlib", "version": "v1.27.1"}
+  ]
+}
